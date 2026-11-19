@@ -92,6 +92,13 @@
   #ccpBar { background: #0f1b2d; color: #fff; padding: 6px 10px; font-size: 12px; display: flex; justify-content: space-between; }
   #ccpBar button { padding: 0 6px; background: transparent; }
   #ccp { width: 100%; height: calc(100% - 28px); }
+  #dlg { position: fixed; inset: 0; background: rgba(15,27,45,.55); display: none; align-items: center; justify-content: center; z-index: 120; padding: 16px; }
+  #dlg .box { background: #fff; border-radius: 12px; padding: 20px; width: 100%; max-width: 380px; box-shadow: 0 10px 40px rgba(0,0,0,.3); }
+  #dlg h3 { margin: 0 0 4px; font-size: 16px; }
+  #dlg p { margin: 0 0 8px; color: var(--muted); font-size: 13px; }
+  #dlgErr { color: var(--err); font-size: 12px; margin-top: 8px; min-height: 16px; word-break: break-word; }
+  #dlg .btns { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  #dlg .btns .grow { flex: 1; }
   #toast { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); background: #1b2330; color: #fff; padding: 8px 16px; border-radius: 8px; z-index: 99; display: none; }
 
   /* ===== layout para sidebar estreita ===== */
@@ -189,6 +196,22 @@
 <div id="ccpWrap" class="hidden">
   <div id="ccpBar"><span>Contact Control Panel</span><button id="ccpClose">✕</button></div>
   <div id="ccp"></div>
+</div>
+<div id="dlg">
+  <div class="box">
+    <h3>Fechar conversa</h3>
+    <p>Informe o nome da pessoa para criar o card no Pipefy com o número vinculado.</p>
+    <label for="dlgName">Nome</label>
+    <input id="dlgName" autocomplete="off" placeholder="Nome da pessoa">
+    <label for="dlgPhone">Número</label>
+    <input id="dlgPhone" autocomplete="off" placeholder="+55 11 99999-0000">
+    <div id="dlgErr"></div>
+    <div class="btns">
+      <button id="dlgOk" class="grow">Criar card e fechar</button>
+      <button id="dlgSkip" class="ghost" title="Fecha o contato sem criar card">Fechar sem card</button>
+      <button id="dlgCancel" class="ghost">Cancelar</button>
+    </div>
+  </div>
 </div>
 <div id="toast"></div>
 
@@ -606,7 +629,76 @@ $('btnEnd').onclick = () => {
   const c = convs.get(selectedId); if (!c || !confirm('Encerrar este chat?')) return;
   c.contact.getAgentConnection().destroy({ failure: () => toast('Falha ao encerrar') });
 };
-$('btnClose').onclick = () => { const c = convs.get(selectedId); if (c) c.contact.clear({ failure: () => toast('Falha ao fechar contato') }); };
+function doClear(c) { c.contact.clear({ failure: () => toast('Falha ao fechar contato') }); }
+
+/* ================== PIPEFY: card ao fechar a conversa ================== */
+const PIPEFY_NAME_FIELD_ID = '';   // opcional: id do campo "Nome" no formulário inicial do pipe
+const PIPEFY_PHONE_FIELD_ID = '';  // opcional: id do campo "Telefone" no formulário inicial do pipe
+let pipefyClient = null;           // preenchido pela página da sidebar (fora do Pipefy fica null)
+
+function getPhone(conv) {
+  try { const ep = conv.contact.getInitialConnection().getEndpoint(); if (ep && ep.phoneNumber) return ep.phoneNumber; } catch {}
+  try {
+    const at = conv.contact.getAttributes() || {};
+    for (const k of ['customerPhone', 'CustomerPhone', 'phone', 'phoneNumber', 'PhoneNumber', 'customerNumber'])
+      if (at[k] && at[k].value) return at[k].value;
+  } catch {}
+  return '';
+}
+const gqlStr = s => JSON.stringify(String(s));
+
+async function createPipefyCard(name, phone) {
+  const p = pipefyClient;
+  const pipeId = (p.app && p.app.pipeId) || p.pipeId;
+  if (!pipeId) throw new Error('Não consegui identificar o pipe atual.');
+  const fields = [];
+  if (PIPEFY_NAME_FIELD_ID) fields.push(`{ field_id: ${gqlStr(PIPEFY_NAME_FIELD_ID)}, field_value: ${gqlStr(name)} }`);
+  if (PIPEFY_PHONE_FIELD_ID && phone) fields.push(`{ field_id: ${gqlStr(PIPEFY_PHONE_FIELD_ID)}, field_value: ${gqlStr(phone)} }`);
+  const fa = fields.length ? `, fields_attributes: [${fields.join(', ')}]` : '';
+  const title = phone ? `${name} - ${phone}` : name;
+  const mutation = `mutation CreateCard($pipeId: ID!, $title: String!) { createCard(input: { pipe_id: $pipeId, title: $title${fa} }) { card { id } } }`;
+  const r = await p.mutation(mutation, { pipeId, title });
+  if (r.errors) throw new Error(typeof r.errors === 'string' ? r.errors : (r.errors.message || JSON.stringify(r.errors).slice(0, 300)));
+  return r.data.createCard.card.id;
+}
+
+let dlgConv = null;
+function openCloseDialog(conv) {
+  dlgConv = conv;
+  $('dlgName').value = conv.personName || (conv.name && conv.name !== 'Cliente' && !/^\+?\d/.test(conv.name) ? conv.name : '');
+  $('dlgPhone').value = getPhone(conv);
+  $('dlgErr').textContent = '';
+  ['dlgOk', 'dlgSkip', 'dlgCancel'].forEach(i => $(i).disabled = false);
+  $('dlg').style.display = 'flex';
+  setTimeout(() => $('dlgName').focus(), 50);
+}
+function closeDialog() { $('dlg').style.display = 'none'; dlgConv = null; }
+
+$('btnClose').onclick = () => {
+  const c = convs.get(selectedId); if (!c) return;
+  if (!pipefyClient) return doClear(c);   // fora do Pipefy não há card para criar
+  openCloseDialog(c);
+};
+$('dlgCancel').onclick = closeDialog;
+$('dlgSkip').onclick = () => { const c = dlgConv; closeDialog(); if (c) doClear(c); };
+$('dlgOk').onclick = async () => {
+  const c = dlgConv; if (!c) return;
+  const name = $('dlgName').value.trim(), phone = $('dlgPhone').value.trim();
+  if (!name) { $('dlgErr').textContent = 'Digite o nome da pessoa.'; $('dlgName').focus(); return; }
+  c.personName = name;
+  ['dlgOk', 'dlgSkip', 'dlgCancel'].forEach(i => $(i).disabled = true);
+  $('dlgErr').textContent = 'Criando card…';
+  try {
+    await createPipefyCard(name, phone);
+    try { pipefyClient.showNotification('Card criado: ' + name, 'success'); } catch {}
+    closeDialog(); doClear(c);
+  } catch (e) {
+    console.error(e);
+    $('dlgErr').textContent = 'Erro ao criar o card: ' + (e.message || e) + ' — você pode tentar de novo ou "Fechar sem card".';
+    ['dlgOk', 'dlgSkip', 'dlgCancel'].forEach(i => $(i).disabled = false);
+  }
+};
+$('dlgName').addEventListener('keydown', e => { if (e.key === 'Enter') $('dlgOk').click(); });
 
 async function sendCurrent() {
   const c = convs.get(selectedId); const text = $('input').value.trim();
@@ -636,7 +728,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) { co
 if (LS.get('autoLogin') === '1') { autoMode = true; startLogin(); }
 
 /* ================== PIPEFY ================== */
-try { PipefyApp.init(); } catch (e) { console.warn('Fora do Pipefy (ou SDK indisponível):', e.message); }
+try { pipefyClient = PipefyApp.init(); } catch (e) { console.warn('Fora do Pipefy (ou SDK indisponível):', e.message); }
 </script>
 </body>
 </html>
