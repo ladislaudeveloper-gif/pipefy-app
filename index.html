@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Amazon Connect (Pipefy App)</title></head>
+<body>
+<script src="https://platform.staticpipefy.com/pipefy-app.js"></script>
+<script>
+  PipefyApp.initCall({
+    'pipe-buttons': function (p, pipe) {
+      return [{
+        icon: './images/icon-white.svg',   // SVG com preenchimento branco (#FFFFFF)
+        text: 'Amazon Connect',
+        callback: function (p) {
+          p.sidebar({ title: 'Amazon Connect', url: './sidebar.html' });
+        }
+      }];
+    }
+  });
+</script>
+</body>
+</html>

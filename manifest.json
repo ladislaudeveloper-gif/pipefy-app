@@ -1,0 +1,9 @@
+{
+  "name": "Amazon Connect",
+  "short_description": "Painel do agente para atender chats do Amazon Connect (WhatsApp).",
+  "description": "Botão no pipe que abre uma sidebar com o painel do agente: login no Amazon Connect, conversas e chat em tempo real.",
+  "author": "Equipe",
+  "icon": "./icon.svg",
+  "init_url": "./index.html",
+  "features": ["pipe-buttons"]
+}

@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Amazon Connect - Atendimento</title>
+<style>
+  :root {
+    --bg: #f1f3f6; --panel: #fff; --line: #e3e6eb; --text: #1b2330; --muted: #6b7686;
+    --brand: #0972d3; --brand-d: #075aa8; --ok: #1a7f37; --warn: #b7791f; --err: #c0341d;
+    --mine: #d9ebff; --theirs: #eef0f3;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+  button { font: inherit; cursor: pointer; border: 0; border-radius: 6px; padding: 7px 12px; background: var(--brand); color: #fff; }
+  button:hover:not(:disabled) { background: var(--brand-d); }
+  button:disabled { background: #b5bcc7; cursor: not-allowed; }
+  button.ghost { background: transparent; color: var(--brand); border: 1px solid var(--line); }
+  button.ghost:hover:not(:disabled) { background: #f4f8fd; }
+  button.danger { background: var(--err); }
+  button.ok { background: var(--ok); }
+  input, select, textarea { font: inherit; padding: 7px 9px; border: 1px solid #cfd5de; border-radius: 6px; background: #fff; color: var(--text); width: 100%; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+
+  /* login */
+  #login { height: 100%; display: flex; align-items: center; justify-content: center; padding: 16px; }
+  #login .card { background: var(--panel); border-radius: 12px; padding: 28px; width: 100%; max-width: 440px; box-shadow: 0 4px 24px rgba(0,0,0,.08); }
+  #login h1 { margin: 0 0 4px; font-size: 20px; }
+  #login p { margin: 0 0 8px; color: var(--muted); }
+  #loginMsg { margin-top: 12px; font-size: 13px; color: var(--err); min-height: 18px; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 6px; line-height: 1.4; }
+
+  /* app */
+  #app { display: none; height: 100%; grid-template-rows: 56px 1fr; }
+  header { background: #0f1b2d; color: #fff; display: flex; align-items: center; gap: 12px; padding: 0 16px; }
+  header .title { font-weight: 600; }
+  header .sp { flex: 1; }
+  header select { width: auto; background: #1d2b42; color: #fff; border-color: #33445f; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #8a94a3; display: inline-block; margin-right: 6px; }
+  .dot.routable { background: #3ecf6e; } .dot.not_routable { background: #f0b429; } .dot.offline { background: #8a94a3; }
+  #agentName { font-size: 13px; opacity: .85; }
+  main { display: grid; grid-template-columns: 300px 1fr 280px; min-height: 0; }
+  @media (max-width: 1000px) { main { grid-template-columns: 260px 1fr; } #info { display: none; } }
+  @media (max-width: 640px) { main { grid-template-columns: 1fr; } #list { display: none; } #list.show { display: flex; } }
+  aside, section { background: var(--panel); min-height: 0; display: flex; flex-direction: column; }
+  #list { border-right: 1px solid var(--line); }
+  #info { border-left: 1px solid var(--line); padding: 14px; overflow-y: auto; }
+  .sec-title { padding: 12px 14px; font-weight: 600; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; }
+  #convs { overflow-y: auto; flex: 1; }
+  .conv { padding: 11px 14px; border-bottom: 1px solid var(--line); cursor: pointer; display: flex; gap: 10px; align-items: center; }
+  .conv:hover { background: #f6f8fb; } .conv.sel { background: #e8f2fd; }
+  .avatar { width: 36px; height: 36px; border-radius: 50%; background: #c8d3e3; color: #34445e; display: flex; align-items: center; justify-content: center; font-weight: 600; flex-shrink: 0; }
+  .conv .meta { min-width: 0; flex: 1; }
+  .conv .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .conv .last { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .badge { background: var(--err); color: #fff; border-radius: 10px; font-size: 11px; padding: 1px 7px; }
+  .tag { font-size: 10px; padding: 1px 6px; border-radius: 8px; background: #eee; color: #555; margin-left: 6px; }
+  .tag.incoming { background: #fff1cc; color: #8a5a00; } .tag.ended { background: #eadcdc; color: #7a2a2a; }
+  .empty { color: var(--muted); text-align: center; padding: 40px 20px; }
+
+  /* chat */
+  #chat { min-width: 0; }
+  #chatHead { padding: 10px 16px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+  #chatHead .who { font-weight: 600; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #incomingBar { display: none; background: #fff6dd; border-bottom: 1px solid #f0dc9c; padding: 10px 16px; align-items: center; gap: 10px; }
+  #incomingBar span { flex: 1; }
+  #endedBar { display: none; background: #f6e7e7; border-bottom: 1px solid #e3c4c4; padding: 10px 16px; align-items: center; gap: 10px; }
+  #endedBar span { flex: 1; }
+  #msgs { flex: 1; overflow-y: auto; padding: 16px; background: #f7f8fa; }
+  .row { display: flex; margin: 6px 0; }
+  .row.AGENT { justify-content: flex-end; }
+  .row.SYSTEM { justify-content: center; }
+  .bubble { max-width: 72%; padding: 8px 12px; border-radius: 12px; background: var(--theirs); word-wrap: break-word; white-space: pre-wrap; }
+  .row.AGENT .bubble { background: var(--mine); }
+  .row.SYSTEM .bubble { background: transparent; color: var(--muted); font-size: 12px; padding: 2px 8px; white-space: normal; }
+  .bubble .by { display: block; font-size: 10px; color: var(--muted); margin-bottom: 2px; }
+  .bubble img { max-width: 240px; max-height: 240px; border-radius: 8px; display: block; margin-top: 4px; }
+  .bubble a { color: var(--brand); }
+  #typing { height: 20px; padding: 0 16px; font-size: 12px; color: var(--muted); font-style: italic; background: #f7f8fa; }
+  #quick { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 16px 0; border-top: 1px solid var(--line); }
+  #quick button { padding: 3px 10px; font-size: 12px; border-radius: 12px; }
+  #composer { display: flex; gap: 8px; padding: 10px 16px 14px; align-items: flex-end; }
+  #composer textarea { resize: none; height: 44px; max-height: 120px; }
+  #chatEmpty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+  .kv { margin-bottom: 10px; } .kv b { display: block; font-size: 11px; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: .03em; }
+  .kv span { word-break: break-all; }
+
+  /* CCP drawer */
+  #ccpWrap { position: fixed; right: 16px; bottom: 16px; width: 340px; height: 520px; background: #fff; border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 30px rgba(0,0,0,.25); z-index: 50; overflow: hidden; }
+  #ccpWrap.hidden { left: -9999px; right: auto; }
+  #ccpBar { background: #0f1b2d; color: #fff; padding: 6px 10px; font-size: 12px; display: flex; justify-content: space-between; }
+  #ccpBar button { padding: 0 6px; background: transparent; }
+  #ccp { width: 100%; height: calc(100% - 28px); }
+  #toast { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); background: #1b2330; color: #fff; padding: 8px 16px; border-radius: 8px; z-index: 99; display: none; }
+
+  /* ===== layout para sidebar estreita ===== */
+  #btnList { display: none; }
+  @media (max-width: 640px) {
+    header { padding: 0 8px; gap: 6px; }
+    header .title, #agentName { display: none; }
+    #btnList { display: inline-block; }
+    #list { border-right: 0; }
+    main.listOpen #chat { display: none; }
+    main.listOpen #list { display: flex; }
+    #info { display: none; }
+    .bubble { max-width: 88%; }
+    #composer { padding: 8px; } #quick { padding: 6px 8px 0; } #chatHead { padding: 8px 10px; }
+    #ccpWrap { width: calc(100% - 24px); right: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ LOGIN ============ -->
+<div id="login">
+  <div class="card">
+    <h1>Painel do Agente</h1>
+    <p>Atendimento de chats do Amazon Connect (WhatsApp, chat web, etc.)</p>
+
+    <label for="cfgUrl">URL da instância do Amazon Connect</label>
+    <input id="cfgUrl" placeholder="https://minha-empresa.my.connect.aws">
+    <div class="hint">É a URL que você usa para acessar o Connect (sem /ccp-v2). Também aceito a URL completa do CCP.</div>
+
+    <label for="cfgRegion">Região da instância</label>
+    <input id="cfgRegion" placeholder="us-east-1">
+
+    <div style="margin-top:18px"><button id="btnLogin" style="width:100%">Entrar com minha conta do Connect</button></div>
+    <div id="loginMsg"></div>
+    <div class="hint">
+      Um popup do Connect vai abrir para você digitar usuário e senha. Se ele for bloqueado, libere popups para este site.<br>
+      Esta página precisa ser servida por <code>http://localhost</code> (ou HTTPS) e a origem precisa estar em <b>Approved origins</b> da instância. Abrir direto como <code>file://</code> não funciona.
+    </div>
+  </div>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="app">
+  <header>
+    <span class="title">Painel do Agente</span>
+    <span id="agentName"></span>
+    <span class="sp"></span>
+    <span><span id="stateDot" class="dot"></span></span>
+    <select id="stateSel" title="Disponibilidade"></select>
+    <button class="ghost" id="btnList" style="color:#fff;border-color:#33445f">Conversas</button>
+    <button class="ghost" id="btnCcp" style="color:#fff;border-color:#33445f">CCP</button>
+    <button class="ghost" id="btnLogout" style="color:#fff;border-color:#33445f">Sair</button>
+  </header>
+
+  <main>
+    <aside id="list">
+      <div class="sec-title"><span>Conversas</span><span id="count" class="tag">0</span></div>
+      <div id="convs"><div class="empty">Nenhuma conversa.<br>Fique <b>Available</b> para receber chats.</div></div>
+    </aside>
+
+    <section id="chat">
+      <div id="chatEmpty">Selecione uma conversa</div>
+      <div id="chatBody" style="display:none;flex:1;min-height:0;flex-direction:column">
+        <div id="chatHead">
+          <div class="avatar" id="chatAvatar"></div>
+          <div class="who" id="chatWho"></div>
+          <button class="ghost" id="btnEnd">Encerrar chat</button>
+        </div>
+        <div id="incomingBar"><span>Novo chat chegando…</span><button class="ok" id="btnAccept">Aceitar</button><button class="danger" id="btnReject">Recusar</button></div>
+        <div id="endedBar"><span>Chat encerrado. Finalize o contato para liberar você para o próximo.</span><button id="btnClose">Fechar contato</button></div>
+        <div id="msgs"></div>
+        <div id="typing"></div>
+        <div id="quick"></div>
+        <div id="composer">
+          <button class="ghost" id="btnAttach" title="Anexar arquivo">📎</button>
+          <input type="file" id="file" style="display:none">
+          <textarea id="input" placeholder="Digite uma mensagem… (Enter envia, Shift+Enter quebra linha)"></textarea>
+          <button id="btnSend">Enviar</button>
+        </div>
+      </div>
+    </section>
+
+    <aside id="info">
+      <div class="sec-title" style="margin:-14px -14px 12px">Detalhes</div>
+      <div id="infoBody"><div class="empty" style="padding:20px 0">—</div></div>
+    </aside>
+  </main>
+</div>
+
+<div id="ccpWrap" class="hidden">
+  <div id="ccpBar"><span>Contact Control Panel</span><button id="ccpClose">✕</button></div>
+  <div id="ccp"></div>
+</div>
+<div id="toast"></div>
+
+<script src="https://platform.staticpipefy.com/pipefy-app.js"></script>
+<!-- Streams primeiro, ChatJS depois (a ordem importa) -->
+<script src="https://cdn.jsdelivr.net/npm/amazon-connect-streams@2.31.0/release/connect-streams-min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/amazon-connect-chatjs@5.4.1/dist/amazon-connect-chat.js"></script>
+
+<script>
+/* ================== CONFIG ================== */
+const QUICK_REPLIES = [
+  "Olá! Como posso ajudar?",
+  "Um momento, por favor, vou verificar.",
+  "Pode me informar seu CPF/e-mail para localizar o cadastro?",
+  "Posso ajudar em mais alguma coisa?",
+  "Obrigado pelo contato! Tenha um ótimo dia."
+];
+
+/* ================== HELPERS ================== */
+const $ = id => document.getElementById(id);
+const LS = {
+  get(k) { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} }
+};
+function toast(msg, ms = 3000) {
+  const t = $('toast'); t.textContent = msg; t.style.display = 'block';
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.style.display = 'none', ms);
+}
+function beep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination); o.frequency.value = 880; g.gain.value = 0.08;
+    o.start(); setTimeout(() => { o.stop(); ctx.close(); }, 180);
+  } catch {}
+}
+const initials = n => (n || '?').trim().split(/\s+/).slice(0, 2).map(s => s[0]).join('').toUpperCase() || '?';
+
+function buildCcpUrl(raw) {
+  let u = raw.trim().replace(/\/+$/, '');
+  if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+  if (!/ccp-v2/.test(u)) u += /awsapps\.com/.test(u) ? (/\/connect$/.test(u) ? '' : '/connect') + '/ccp-v2' : '/ccp-v2';
+  return u;
+}
+function buildLogoutUrl(ccpUrl) {
+  const o = new URL(ccpUrl);
+  return o.origin + (/awsapps\.com/.test(o.host) ? '/connect/logout' : '/logout');
+}
+
+/* ================== ESTADO ================== */
+let ccpUrl = '';
+let agent = null;
+let agentStates = [];
+const convs = new Map();   // contactId -> conv
+let selectedId = null;
+let typingSentAt = 0;
+let unreadTotal = 0;
+const baseTitle = document.title;
+
+/* ================== LOGIN / CCP ================== */
+$('cfgUrl').value = LS.get('cfgUrl');
+$('cfgRegion').value = LS.get('cfgRegion') || 'us-east-1';
+
+$('btnLogin').onclick = () => {
+  const url = $('cfgUrl').value.trim(), region = $('cfgRegion').value.trim();
+  if (!url || !region) { $('loginMsg').textContent = 'Preencha a URL e a região.'; return; }
+  LS.set('cfgUrl', url); LS.set('cfgRegion', region);
+  ccpUrl = buildCcpUrl(url);
+  $('loginMsg').textContent = '';
+  $('btnLogin').disabled = true; $('btnLogin').textContent = 'Aguardando login…';
+  initCcp(region);
+};
+
+function initCcp(region) {
+  connect.core.initCCP($('ccp'), {
+    ccpUrl,
+    region,
+    loginPopup: true,
+    loginPopupAutoClose: true,
+    loginOptions: { autoClose: true, height: 600, width: 400, top: 0, left: 0 },
+    softphone: { allowFramedSoftphone: false, disableRingtone: true },
+    pageOptions: { enableAudioDeviceSettings: false, enablePhoneTypeSettings: false }
+  });
+
+  setStage('CCP carregando… (complete o login no popup, se ele abriu)');
+
+  connect.core.onInitialized(() => { console.log('CCP inicializado'); setStage('CCP inicializado, aguardando dados do agente…'); });
+  connect.core.onAuthFail(() => failLogin('Falha de autenticação. Tente entrar de novo.'));
+  connect.core.onAccessDenied(() => failLogin('Acesso negado. Sua origem está em "Approved origins" da instância?'));
+  try {
+    connect.core.getEventBus().subscribe(connect.EventType.ACK_TIMEOUT, () => failLogin('O CCP não respondeu (ACK timeout). Verifique "Approved origins", a URL da instância e se cookies de terceiros estão liberados.'));
+    connect.core.getEventBus().subscribe(connect.EventType.AUTH_FAIL, () => console.warn('AUTH_FAIL'));
+    connect.core.getEventBus().subscribe(connect.EventType.ACCESS_DENIED, () => console.warn('ACCESS_DENIED'));
+  } catch (e) { console.warn(e); }
+
+  connect.agent(a => {
+    agent = a;
+    showApp();
+    renderAgent();
+    a.onStateChange(renderAgent);
+    a.onRefresh(renderAgent);
+  });
+  connect.contact(onNewContact);
+
+  // se o login não concluir em 90s, libera o botão
+  setTimeout(() => { if (!agent) failLogin('Tempo esgotado. Verifique se o popup de login abriu.'); }, 90000);
+}
+function setStage(msg) { const m = $('loginMsg'); m.style.color = '#6b7686'; m.textContent = msg; }
+function failLogin(msg) {
+  if (agent) return;
+  $('loginMsg').style.color = '#c0341d';
+  $('loginMsg').textContent = msg;
+  $('btnLogin').disabled = false; $('btnLogin').textContent = 'Entrar com minha conta do Connect';
+}
+function showApp() {
+  $('login').style.display = 'none';
+  $('app').style.display = 'grid';
+  $('ccpWrap').classList.add('hidden');
+  renderQuick();
+}
+
+function renderAgent() {
+  if (!agent) return;
+  $('agentName').textContent = agent.getName();
+  agentStates = agent.getAgentStates();
+  const cur = agent.getState();
+  const sel = $('stateSel');
+  sel.innerHTML = '';
+  agentStates.forEach(s => {
+    const o = document.createElement('option');
+    o.value = s.name; o.textContent = s.name; if (s.name === cur.name) o.selected = true;
+    sel.appendChild(o);
+  });
+  $('stateDot').className = 'dot ' + (cur.type || '');
+}
+$('stateSel').onchange = e => {
+  const st = agentStates.find(s => s.name === e.target.value);
+  if (!st) return;
+  agent.setState(st, {
+    success: () => toast('Status: ' + st.name),
+    failure: () => { toast('Não foi possível mudar o status'); renderAgent(); }
+  });
+};
+
+$('btnCcp').onclick = () => $('ccpWrap').classList.toggle('hidden');
+$('ccpClose').onclick = () => $('ccpWrap').classList.add('hidden');
+$('btnLogout').onclick = async () => {
+  if (!confirm('Sair do Amazon Connect?')) return;
+  try { await fetch(buildLogoutUrl(ccpUrl), { credentials: 'include', mode: 'no-cors' }); } catch {}
+  try { connect.core.terminate(); } catch {}
+  location.reload();
+};
+
+/* ================== CONTATOS ================== */
+function onNewContact(contact) {
+  if (contact.getType() !== connect.ContactType.CHAT) return; // este painel só trata chat
+  const id = contact.getContactId();
+  let conv = convs.get(id);
+  if (!conv) {
+    conv = { id, contact, session: null, items: new Map(), unread: 0, state: 'incoming', name: '', draft: '', typingTimer: null, imgCache: {} };
+    convs.set(id, conv);
+    conv.name = guessName(contact) || 'Cliente';
+    beep();
+    toast('Novo chat de ' + conv.name);
+    if (!selectedId) selectedId = id;
+  }
+
+  contact.onConnecting(() => { conv.state = 'incoming'; renderAll(); });
+  contact.onAccepted(() => { conv.state = 'active'; setupSession(conv); renderAll(); });
+  contact.onConnected(() => { conv.state = 'active'; setupSession(conv); renderAll(); });
+  contact.onEnded(() => { conv.state = 'ended'; renderAll(); });
+  contact.onDestroy(() => {
+    convs.delete(id);
+    if (selectedId === id) selectedId = convs.size ? convs.keys().next().value : null;
+    renderAll();
+  });
+
+  const st = contact.getStatus().type;
+  if (st === connect.ContactStateType.CONNECTED) { conv.state = 'active'; setupSession(conv); }
+  else if (st === connect.ContactStateType.ENDED) conv.state = 'ended';
+  renderAll();
+}
+
+function guessName(contact) {
+  try {
+    const attrs = contact.getAttributes() || {};
+    for (const k of ['customerName', 'CustomerName', 'name', 'Name', 'displayName'])
+      if (attrs[k] && attrs[k].value) return attrs[k].value;
+  } catch {}
+  try {
+    const ep = contact.getInitialConnection().getEndpoint();
+    if (ep && (ep.name || ep.phoneNumber || ep.endpointARN)) return ep.name || ep.phoneNumber;
+  } catch {}
+  return '';
+}
+
+async function setupSession(conv) {
+  if (conv.session || conv.settingUp) return;
+  conv.settingUp = true;
+  try {
+    const session = await conv.contact.getAgentConnection().getMediaController();
+    conv.session = session;
+
+    session.onMessage(ev => addItem(conv, ev.data, true));
+    session.onTyping(ev => {
+      if (ev.data.ParticipantRole === 'AGENT') return;
+      conv.typing = true; if (conv.id === selectedId) renderTyping();
+      clearTimeout(conv.typingTimer);
+      conv.typingTimer = setTimeout(() => { conv.typing = false; if (conv.id === selectedId) renderTyping(); }, 3500);
+    });
+    session.onConnectionEstablished(() => loadTranscript(conv));
+    session.onEnded(() => { conv.state = 'ended'; renderAll(); });
+
+    await loadTranscript(conv);
+  } catch (e) {
+    console.error('Falha ao obter sessão de chat', e);
+    toast('Erro ao abrir sessão do chat');
+  } finally { conv.settingUp = false; }
+}
+
+async function loadTranscript(conv) {
+  if (!conv.session) return;
+  try {
+    const { data } = await conv.session.getTranscript({ scanDirection: 'BACKWARD', sortOrder: 'ASCENDING', maxResults: 100 });
+    (data.Transcript || []).forEach(it => addItem(conv, it, false));
+    renderAll();
+  } catch (e) { console.warn('getTranscript falhou', e); }
+}
+
+function addItem(conv, item, live) {
+  if (!item || !item.Id || conv.items.has(item.Id)) return;
+  const t = item.ContentType || '';
+  if (t.includes('typing') || t.includes('connection.acknowledged') || t.includes('readreceipt') || t.includes('deliveredreceipt')) return;
+  conv.items.set(item.Id, item);
+  if (item.ParticipantRole === 'CUSTOMER' && item.DisplayName && (conv.name === 'Cliente' || !conv.name)) conv.name = item.DisplayName;
+  if (live && item.ParticipantRole === 'CUSTOMER' && (item.Type === 'MESSAGE' || item.Type === 'ATTACHMENT')) {
+    if (conv.id !== selectedId || document.hidden) { conv.unread++; unreadTotal++; beep(); }
+  }
+  renderAll();
+}
+
+/* ================== RENDER ================== */
+function renderAll() {
+  if (!selectedId && window.matchMedia('(max-width: 640px)').matches) document.querySelector('main').classList.add('listOpen');
+  renderList(); renderChat(); renderInfo(); updateTitle();
+}
+$('btnList').onclick = () => document.querySelector('main').classList.toggle('listOpen');
+
+function updateTitle() {
+  const n = [...convs.values()].reduce((s, c) => s + c.unread, 0);
+  document.title = (n ? `(${n}) ` : '') + baseTitle;
+}
+
+function lastText(conv) {
+  const arr = [...conv.items.values()].filter(i => i.Type === 'MESSAGE' || i.Type === 'ATTACHMENT');
+  const l = arr[arr.length - 1];
+  if (!l) return conv.state === 'incoming' ? 'Aguardando aceite…' : '';
+  return l.Type === 'ATTACHMENT' ? '📎 anexo' : (l.Content || '');
+}
+
+function renderList() {
+  $('count').textContent = convs.size;
+  $('btnList').textContent = 'Conversas' + (convs.size ? ' (' + convs.size + ')' : '');
+  const box = $('convs');
+  if (!convs.size) { box.innerHTML = '<div class="empty">Nenhuma conversa.<br>Fique <b>Available</b> para receber chats.</div>'; return; }
+  box.innerHTML = '';
+  convs.forEach(conv => {
+    const d = document.createElement('div');
+    d.className = 'conv' + (conv.id === selectedId ? ' sel' : '');
+    d.innerHTML = '<div class="avatar"></div><div class="meta"><div class="name"></div><div class="last"></div></div>';
+    d.querySelector('.avatar').textContent = initials(conv.name);
+    const nm = d.querySelector('.name'); nm.textContent = conv.name;
+    if (conv.state !== 'active') { const t = document.createElement('span'); t.className = 'tag ' + conv.state; t.textContent = conv.state === 'incoming' ? 'novo' : 'encerrado'; nm.appendChild(t); }
+    d.querySelector('.last').textContent = lastText(conv);
+    if (conv.unread) { const b = document.createElement('span'); b.className = 'badge'; b.textContent = conv.unread; d.appendChild(b); }
+    d.onclick = () => selectConv(conv.id);
+    box.appendChild(d);
+  });
+}
+
+function selectConv(id) {
+  const prev = convs.get(selectedId); if (prev) prev.draft = $('input').value;
+  selectedId = id;
+  const c = convs.get(id);
+  if (c) { unreadTotal = Math.max(0, unreadTotal - c.unread); c.unread = 0; $('input').value = c.draft || ''; }
+  renderAll();
+  document.querySelector('main').classList.remove('listOpen');
+}
+
+function renderChat() {
+  const conv = convs.get(selectedId);
+  $('chatEmpty').style.display = conv ? 'none' : 'flex';
+  $('chatBody').style.display = conv ? 'flex' : 'none';
+  if (!conv) return;
+  if (conv.unread && !document.hidden) conv.unread = 0;
+
+  $('chatAvatar').textContent = initials(conv.name);
+  $('chatWho').textContent = conv.name;
+  $('incomingBar').style.display = conv.state === 'incoming' ? 'flex' : 'none';
+  $('endedBar').style.display = conv.state === 'ended' ? 'flex' : 'none';
+  $('btnEnd').style.display = conv.state === 'active' ? '' : 'none';
+  const can = conv.state === 'active' && !!conv.session;
+  ['input', 'btnSend', 'btnAttach'].forEach(i => $(i).disabled = !can);
+  [...$('quick').children].forEach(b => b.disabled = !can);
+
+  const box = $('msgs');
+  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  box.innerHTML = '';
+  const items = [...conv.items.values()].sort((a, b) => new Date(a.AbsoluteTime) - new Date(b.AbsoluteTime));
+  items.forEach(it => box.appendChild(renderItem(conv, it)));
+  if (nearBottom || box.dataset.cid !== conv.id) box.scrollTop = box.scrollHeight;
+  box.dataset.cid = conv.id;
+  renderTyping();
+}
+
+function renderTyping() {
+  const conv = convs.get(selectedId);
+  $('typing').textContent = conv && conv.typing ? conv.name + ' está digitando…' : '';
+}
+
+function renderItem(conv, it) {
+  const row = document.createElement('div');
+  const bubble = document.createElement('div'); bubble.className = 'bubble';
+  const time = it.AbsoluteTime ? new Date(it.AbsoluteTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+
+  if (it.Type === 'MESSAGE' || it.Type === 'ATTACHMENT') {
+    const role = it.ParticipantRole === 'AGENT' ? 'AGENT' : 'CUSTOMER';
+    row.className = 'row ' + role;
+    const by = document.createElement('span'); by.className = 'by';
+    by.textContent = (it.DisplayName || (role === 'AGENT' ? 'Você' : conv.name)) + ' · ' + time;
+    bubble.appendChild(by);
+    if (it.Type === 'MESSAGE') {
+      const ct = it.ContentType || '';
+      if (ct.startsWith('text/')) bubble.appendChild(document.createTextNode(it.Content));
+      else bubble.appendChild(document.createTextNode('[mensagem ' + ct.split('.').pop() + '] ' + (it.Content || '')));
+    } else {
+      (it.Attachments || []).forEach(a => bubble.appendChild(renderAttachment(conv, a)));
+    }
+  } else {
+    row.className = 'row SYSTEM';
+    bubble.textContent = systemText(it) + (time ? ' · ' + time : '');
+  }
+  row.appendChild(bubble);
+  return row;
+}
+
+function systemText(it) {
+  const t = (it.ContentType || '').split('.').pop();
+  const who = it.DisplayName || it.ParticipantRole || '';
+  const map = { joined: `${who} entrou`, left: `${who} saiu`, ended: 'Chat encerrado', idle: `${who} está inativo(a)`, returned: `${who} voltou`, 'auto-disconnection': 'Desconectado por inatividade' };
+  return map[t] || ('· ' + t + ' ·');
+}
+
+function renderAttachment(conv, a) {
+  const wrap = document.createElement('div');
+  const link = document.createElement('a'); link.href = '#'; link.textContent = '📎 ' + (a.AttachmentName || 'arquivo');
+  link.onclick = async e => { e.preventDefault(); const u = await getAttUrl(conv, a.AttachmentId); if (u) window.open(u, '_blank'); };
+  wrap.appendChild(link);
+  if ((a.ContentType || '').startsWith('image/') && a.Status !== 'REJECTED') {
+    const img = document.createElement('img'); wrap.appendChild(img);
+    getAttUrl(conv, a.AttachmentId).then(u => { if (u) img.src = u; else img.remove(); });
+  }
+  return wrap;
+}
+async function getAttUrl(conv, attId) {
+  if (conv.imgCache[attId]) return conv.imgCache[attId];
+  try { const u = await conv.session.getAttachmentURL({ attachmentId: attId }); conv.imgCache[attId] = u; return u; }
+  catch (e) { console.warn('getAttachmentURL', e); return null; }
+}
+
+function renderInfo() {
+  const conv = convs.get(selectedId); const b = $('infoBody');
+  if (!conv) { b.innerHTML = '<div class="empty" style="padding:20px 0">—</div>'; return; }
+  const rows = [['Contato', conv.id], ['Estado', { incoming: 'Chegando', active: 'Em atendimento', ended: 'Encerrado' }[conv.state]]];
+  try { rows.push(['Fila', conv.contact.getQueue().name]); } catch {}
+  try { const ep = conv.contact.getInitialConnection().getEndpoint(); if (ep && ep.phoneNumber) rows.push(['Telefone', ep.phoneNumber]); } catch {}
+  try { const at = conv.contact.getAttributes() || {}; Object.keys(at).forEach(k => rows.push([k, at[k].value])); } catch {}
+  b.innerHTML = '';
+  rows.forEach(([k, v]) => {
+    const d = document.createElement('div'); d.className = 'kv';
+    d.innerHTML = '<b></b><span></span>'; d.firstChild.textContent = k; d.lastChild.textContent = v;
+    b.appendChild(d);
+  });
+}
+
+function renderQuick() {
+  const q = $('quick'); q.innerHTML = '';
+  QUICK_REPLIES.forEach(t => {
+    const b = document.createElement('button'); b.className = 'ghost'; b.textContent = t.length > 28 ? t.slice(0, 26) + '…' : t; b.title = t;
+    b.onclick = () => { $('input').value = t; $('input').focus(); };
+    q.appendChild(b);
+  });
+}
+
+/* ================== AÇÕES ================== */
+$('btnAccept').onclick = () => { const c = convs.get(selectedId); if (c) c.contact.accept({ failure: () => toast('Falha ao aceitar') }); };
+$('btnReject').onclick = () => { const c = convs.get(selectedId); if (c) c.contact.reject({ failure: () => toast('Falha ao recusar') }); };
+$('btnEnd').onclick = () => {
+  const c = convs.get(selectedId); if (!c || !confirm('Encerrar este chat?')) return;
+  c.contact.getAgentConnection().destroy({ failure: () => toast('Falha ao encerrar') });
+};
+$('btnClose').onclick = () => { const c = convs.get(selectedId); if (c) c.contact.clear({ failure: () => toast('Falha ao fechar contato') }); };
+
+async function sendCurrent() {
+  const c = convs.get(selectedId); const text = $('input').value.trim();
+  if (!c || !c.session || !text) return;
+  $('input').value = ''; c.draft = '';
+  try { await c.session.sendMessage({ contentType: 'text/plain', message: text }); }
+  catch (e) { console.error(e); toast('Falha ao enviar a mensagem'); $('input').value = text; }
+}
+$('btnSend').onclick = sendCurrent;
+$('input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendCurrent(); } });
+$('input').addEventListener('input', () => {
+  const c = convs.get(selectedId);
+  if (!c || !c.session || Date.now() - typingSentAt < 4000) return;
+  typingSentAt = Date.now();
+  c.session.sendEvent({ contentType: 'application/vnd.amazonaws.connect.event.typing' }).catch(() => {});
+});
+$('btnAttach').onclick = () => $('file').click();
+$('file').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = '';
+  const c = convs.get(selectedId); if (!f || !c || !c.session) return;
+  try { await c.session.sendAttachment({ attachment: f }); toast('Anexo enviado'); }
+  catch (err) { console.error(err); toast('Falha ao enviar anexo (habilitado na instância? máx 20 MB)'); }
+};
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { const c = convs.get(selectedId); if (c) { c.unread = 0; renderAll(); } } });
+
+/* ================== PIPEFY ================== */
+try { PipefyApp.init(); } catch (e) { console.warn('Fora do Pipefy (ou SDK indisponível):', e.message); }
+</script>
+</body>
+</html>
