@@ -118,12 +118,16 @@
     <h1>Painel do Agente</h1>
     <p>Atendimento de chats do Amazon Connect (WhatsApp, chat web, etc.)</p>
 
-    <label for="cfgUrl">URL da instância do Amazon Connect</label>
-    <input id="cfgUrl" placeholder="https://minha-empresa.my.connect.aws">
-    <div class="hint">É a URL que você usa para acessar o Connect (sem /ccp-v2). Também aceito a URL completa do CCP.</div>
+    <div id="cfgBox" style="display:none">
+      <label for="cfgUrl">URL da instância do Amazon Connect</label>
+      <input id="cfgUrl" placeholder="https://minha-empresa.my.connect.aws">
+      <div class="hint">É a URL que você usa para acessar o Connect (sem /ccp-v2). Também aceito a URL completa do CCP.</div>
 
-    <label for="cfgRegion">Região da instância</label>
-    <input id="cfgRegion" placeholder="us-east-1">
+      <label for="cfgRegion">Região da instância</label>
+      <input id="cfgRegion" placeholder="us-east-1">
+    </div>
+    <div class="hint" id="instInfo"></div>
+    <a href="#" id="lnkCfg" class="hint" style="display:inline-block">Alterar instância</a>
 
     <div style="margin-top:18px"><button id="btnLogin" style="width:100%">Entrar com minha conta do Connect</button></div>
     <div id="loginMsg"></div>
@@ -245,18 +249,29 @@ let unreadTotal = 0;
 const baseTitle = document.title;
 
 /* ================== LOGIN / CCP ================== */
-$('cfgUrl').value = LS.get('cfgUrl');
-$('cfgRegion').value = LS.get('cfgRegion') || 'us-east-1';
+// Instância padrão: o painel já abre apontando para este CCP, sem pedir a URL.
+const DEFAULT_CONNECT_URL = 'https://demoadjustit.my.connect.aws/ccp-v2';
+const DEFAULT_REGION = 'us-east-1';
+let ccpStarted = false, autoMode = false;
 
-$('btnLogin').onclick = () => {
+$('cfgUrl').value = LS.get('cfgUrl') || DEFAULT_CONNECT_URL;
+$('cfgRegion').value = LS.get('cfgRegion') || DEFAULT_REGION;
+function showInst() { $('instInfo').textContent = 'Instância: ' + buildCcpUrl($('cfgUrl').value).replace(/\/ccp-v2$/, '').replace(/^https?:\/\//, ''); }
+showInst();
+$('lnkCfg').onclick = e => { e.preventDefault(); $('cfgBox').style.display = ''; $('lnkCfg').style.display = 'none'; $('instInfo').style.display = 'none'; };
+
+function startLogin() {
   const url = $('cfgUrl').value.trim(), region = $('cfgRegion').value.trim();
   if (!url || !region) { $('loginMsg').textContent = 'Preencha a URL e a região.'; return; }
   LS.set('cfgUrl', url); LS.set('cfgRegion', region);
   ccpUrl = buildCcpUrl(url);
   $('loginMsg').textContent = '';
   $('btnLogin').disabled = true; $('btnLogin').textContent = 'Aguardando login…';
+  if (ccpStarted) { try { connect.core.terminate(); } catch {} $('ccp').innerHTML = ''; }
+  ccpStarted = true;
   initCcp(region);
-};
+}
+$('btnLogin').onclick = () => { autoMode = false; startLogin(); };
 
 function initCcp(region) {
   connect.core.initCCP($('ccp'), {
@@ -282,6 +297,7 @@ function initCcp(region) {
 
   connect.agent(a => {
     agent = a;
+    LS.set('autoLogin', '1');   // da próxima vez, entra direto sem clicar
     showApp();
     renderAgent();
     a.onStateChange(renderAgent);
@@ -289,12 +305,15 @@ function initCcp(region) {
   });
   connect.contact(onNewContact);
 
-  // se o login não concluir em 90s, libera o botão
-  setTimeout(() => { if (!agent) failLogin('Tempo esgotado. Verifique se o popup de login abriu.'); }, 90000);
+  // se o login não concluir a tempo, libera o botão (no modo automático o popup pode ser bloqueado: espera menos)
+  setTimeout(() => {
+    if (!agent) failLogin(autoMode ? 'Sua sessão expirou. Clique em Entrar para fazer login.' : 'Tempo esgotado. Verifique se o popup de login abriu.');
+  }, autoMode ? 15000 : 90000);
 }
 function setStage(msg) { const m = $('loginMsg'); m.style.color = '#6b7686'; m.textContent = msg; }
 function failLogin(msg) {
   if (agent) return;
+  LS.set('autoLogin', '');
   $('loginMsg').style.color = '#c0341d';
   $('loginMsg').textContent = msg;
   $('btnLogin').disabled = false; $('btnLogin').textContent = 'Entrar com minha conta do Connect';
@@ -335,6 +354,7 @@ $('btnLogout').onclick = async () => {
   if (!confirm('Sair do Amazon Connect?')) return;
   try { await fetch(buildLogoutUrl(ccpUrl), { credentials: 'include', mode: 'no-cors' }); } catch {}
   try { connect.core.terminate(); } catch {}
+  LS.set('autoLogin', '');
   location.reload();
 };
 
@@ -611,6 +631,9 @@ $('file').onchange = async e => {
   catch (err) { console.error(err); toast('Falha ao enviar anexo (habilitado na instância? máx 20 MB)'); }
 };
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { const c = convs.get(selectedId); if (c) { c.unread = 0; renderAll(); } } });
+
+// Se o agente já entrou antes neste navegador, conecta sozinho (sem precisar clicar em Entrar).
+if (LS.get('autoLogin') === '1') { autoMode = true; startLogin(); }
 
 /* ================== PIPEFY ================== */
 try { PipefyApp.init(); } catch (e) { console.warn('Fora do Pipefy (ou SDK indisponível):', e.message); }
